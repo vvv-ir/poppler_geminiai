@@ -14,7 +14,7 @@ jobs:
       - name: Download Toolchain
         run: |
           # Скачиваем артефакт из предыдущего релиза (замените на свой URL/release tag)
-          curl -LO https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-latest/osxcross-${{ matrix.osx }}-toolchain.tar.bz2
+          curl -LO https://github.com/osxcross_gemini_aistudio_way/releases/tag/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp
           echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
 
