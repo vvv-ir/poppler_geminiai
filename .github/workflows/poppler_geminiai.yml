@@ -11,8 +11,18 @@ jobs:
     
     steps:
       - name: Install Build Tools
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build curl tar xz-utils libxar1
-
+        run: |
+          sudo apt-get update
+          # Пытаемся установить libxar-dev, в котором обычно есть нужная библиотека
+          sudo apt-get install -y cmake ninja-build curl tar xz-utils libxar-dev
+          
+          # Если libxar1 все еще не виден, найдем где он лежит в системе и создадим симлинк
+          if [ ! -f /usr/lib/x86_64-linux-gnu/libxar.so.1 ]; then
+            echo "Searching for libxar..."
+            find /usr/lib -name "libxar.so*"
+            # Создаем симлинк на версию, которая есть в системе
+            sudo ln -s $(find /usr/lib -name "libxar.so.*" | head -n 1) /usr/lib/x86_64-linux-gnu/libxar.so.1 || true
+          fi
       - name: Download and Prepare
         run: |
           set -euo pipefail
