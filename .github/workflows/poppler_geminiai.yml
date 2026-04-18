@@ -1,72 +1,59 @@
-name: Build Poppler
+name: Build Poppler from Scratch
 
-on:
-  workflow_dispatch:
+on: [workflow_dispatch]
 
 jobs:
   build-poppler:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         osx: ["10.5", "10.6", "10.13"]
     
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
+      - name: Install Build Tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build curl tar xz-utils
 
-      - name: Download Toolchain
-        run: |
-          # Скачиваем артефакты, собранные ранее
-          # Убедитесь, что имена файлов соответствуют тем, что были при загрузке
-          # https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-10.13-toolchain.tar.bz2
-          curl -LO https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2
-          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
-          echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
-
-      - name: Locate and Compile Poppler
+      - name: Download and Prepare
         run: |
           set -euo pipefail
+          # 1. Скачивание вашего конкретного артефакта из релиза
+          RELEASE_URL="https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2"
+          curl -LO "$RELEASE_URL"
+          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
           
-          # Автоматический поиск директории с CMakeLists.txt
-          CMAKE_PATH=$(find $GITHUB_WORKSPACE -name "CMakeLists.txt" -print -quit | xargs dirname)
-          if [ -z "$CMAKE_PATH" ]; then
-            echo "::error::CMakeLists.txt not found in workspace."
-            exit 1
-          fi
-          echo "Found CMake project at: $CMAKE_PATH"
+          # Установка пути к тулчейну
+          echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
           
-          # Переменные окружения для кросс-компиляции
+          # 2. Скачивание и распаковка исходников Poppler
+          curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
+          mv poppler-* poppler_src
+
+      - name: Build Poppler
+        run: |
+          set -euo pipefail
           export CC=o64-clang
           export CXX=o64-clang++
           export MACOSX_DEPLOYMENT_TARGET=${{ matrix.osx }}
           
-          # Если 10.13, подключаем пути к библиотекам MacPorts
-          if [[ "${{ matrix.osx }}" == "10.13" ]]; then
-            export PKG_CONFIG_PATH=/tmp/target/macports/pkgs/opt/local/lib/pkgconfig
-          fi
-          
-          # Подготовка директории сборки
           mkdir build && cd build
           
-          # Настройка CMake
-          cmake "$CMAKE_PATH" \
+          # Использование флага для старых систем (определение архитектуры)
+          ARCH_FLAG="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}"
+          
+          cmake ../poppler_src \
             -DCMAKE_SYSTEM_NAME=Darwin \
             -DCMAKE_C_COMPILER=$CC \
             -DCMAKE_CXX_COMPILER=$CXX \
-            -DCMAKE_CXX_FLAGS="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}" \
-            -DENABLE_QT5=OFF \
-            -DENABLE_QT6=OFF \
-            -DENABLE_CMS=OFF \
-            -DENABLE_LIBTIFF=OFF \
+            -DCMAKE_CXX_FLAGS="$ARCH_FLAG" \
+            -DCMAKE_C_FLAGS="$ARCH_FLAG" \
+            -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_CMS=OFF -DENABLE_LIBTIFF=OFF -DENABLE_PNG=OFF -DBUILD_CPP_TESTS=OFF \
             -DCMAKE_INSTALL_PREFIX=./install
           
-          # Сборка
           make -j$(nproc)
           make install
 
-      - name: Upload Build Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: poppler-${{ matrix.osx }}
+          name: poppler-bin-${{ matrix.osx }}
           path: build/install/
