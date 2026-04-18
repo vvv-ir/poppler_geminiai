@@ -1,0 +1,40 @@
+name: Build Poppler
+
+on: [workflow_dispatch]
+
+jobs:
+  build-poppler:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        osx: ["10.5", "10.6", "10.13"]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Toolchain
+        run: |
+          # Скачиваем артефакт из предыдущего релиза (замените на свой URL/release tag)
+          curl -LO https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-latest/osxcross-${{ matrix.osx }}-toolchain.tar.bz2
+          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp
+          echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
+
+      - name: Compile Poppler
+        run: |
+          # Переменные окружения для кросс-компиляции
+          export CC=o64-clang
+          export CXX=o64-clang++
+          export MACOSX_DEPLOYMENT_TARGET=${{ matrix.osx }}
+          
+          # Если это 10.13, используем пути к MacPorts либам
+          if [[ "${{ matrix.osx }}" == "10.13" ]]; then
+            export PKG_CONFIG_PATH=/tmp/target/macports/pkgs/opt/local/lib/pkgconfig
+          fi
+          
+          mkdir build && cd build
+          cmake .. \
+            -DCMAKE_SYSTEM_NAME=Darwin \
+            -DCMAKE_C_COMPILER=$CC \
+            -DCMAKE_CXX_COMPILER=$CXX \
+            -DENABLE_QT5=OFF \
+            -DENABLE_QT6=OFF
+          make -j$(nproc)
