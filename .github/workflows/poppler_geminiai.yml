@@ -1,51 +1,72 @@
 name: Build Poppler
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
 
 jobs:
   build-poppler:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         osx: ["10.5", "10.6", "10.13"]
+    
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
       - name: Download Toolchain
         run: |
-          # Скачиваем артефакт из предыдущего релиза (замените на свой URL/release tag)
-          #         https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-10.13-toolchain.tar.bz2
+          # Скачиваем артефакты, собранные ранее
+          # Убедитесь, что имена файлов соответствуют тем, что были при загрузке
+          # https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-10.13-toolchain.tar.bz2
           curl -LO https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2
-          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp
+          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
           echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
 
-     - name: Locate and Compile Poppler
+      - name: Locate and Compile Poppler
         run: |
-          # Автоматический поиск CMakeLists.txt
-          CMAKE_PATH=$(find $GITHUB_WORKSPACE -name "CMakeLists.txt" -print -quit | xargs dirname)
-          echo "Found CMake project at: $CMAKE_PATH"
+          set -euo pipefail
           
+          # Автоматический поиск директории с CMakeLists.txt
+          CMAKE_PATH=$(find $GITHUB_WORKSPACE -name "CMakeLists.txt" -print -quit | xargs dirname)
           if [ -z "$CMAKE_PATH" ]; then
             echo "::error::CMakeLists.txt not found in workspace."
             exit 1
           fi
-
-          # Переменные окружения
+          echo "Found CMake project at: $CMAKE_PATH"
+          
+          # Переменные окружения для кросс-компиляции
           export CC=o64-clang
           export CXX=o64-clang++
           export MACOSX_DEPLOYMENT_TARGET=${{ matrix.osx }}
           
-          # Подготовка путей
+          # Если 10.13, подключаем пути к библиотекам MacPorts
+          if [[ "${{ matrix.osx }}" == "10.13" ]]; then
+            export PKG_CONFIG_PATH=/tmp/target/macports/pkgs/opt/local/lib/pkgconfig
+          fi
+          
+          # Подготовка директории сборки
           mkdir build && cd build
           
-          # Сборка
+          # Настройка CMake
           cmake "$CMAKE_PATH" \
             -DCMAKE_SYSTEM_NAME=Darwin \
             -DCMAKE_C_COMPILER=$CC \
             -DCMAKE_CXX_COMPILER=$CXX \
+            -DCMAKE_CXX_FLAGS="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}" \
             -DENABLE_QT5=OFF \
             -DENABLE_QT6=OFF \
+            -DENABLE_CMS=OFF \
+            -DENABLE_LIBTIFF=OFF \
             -DCMAKE_INSTALL_PREFIX=./install
           
+          # Сборка
           make -j$(nproc)
           make install
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: poppler-${{ matrix.osx }}
+          path: build/install/
