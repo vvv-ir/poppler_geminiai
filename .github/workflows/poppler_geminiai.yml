@@ -19,23 +19,33 @@ jobs:
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp
           echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
 
-      - name: Compile Poppler
+     - name: Locate and Compile Poppler
         run: |
-          # Переменные окружения для кросс-компиляции
+          # Автоматический поиск CMakeLists.txt
+          CMAKE_PATH=$(find $GITHUB_WORKSPACE -name "CMakeLists.txt" -print -quit | xargs dirname)
+          echo "Found CMake project at: $CMAKE_PATH"
+          
+          if [ -z "$CMAKE_PATH" ]; then
+            echo "::error::CMakeLists.txt not found in workspace."
+            exit 1
+          fi
+
+          # Переменные окружения
           export CC=o64-clang
           export CXX=o64-clang++
           export MACOSX_DEPLOYMENT_TARGET=${{ matrix.osx }}
           
-          # Если это 10.13, используем пути к MacPorts либам
-          if [[ "${{ matrix.osx }}" == "10.13" ]]; then
-            export PKG_CONFIG_PATH=/tmp/target/macports/pkgs/opt/local/lib/pkgconfig
-          fi
-          
+          # Подготовка путей
           mkdir build && cd build
-          cmake .. \
+          
+          # Сборка
+          cmake "$CMAKE_PATH" \
             -DCMAKE_SYSTEM_NAME=Darwin \
             -DCMAKE_C_COMPILER=$CC \
             -DCMAKE_CXX_COMPILER=$CXX \
             -DENABLE_QT5=OFF \
-            -DENABLE_QT6=OFF
+            -DENABLE_QT6=OFF \
+            -DCMAKE_INSTALL_PREFIX=./install
+          
           make -j$(nproc)
+          make install
