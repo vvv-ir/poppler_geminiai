@@ -45,7 +45,7 @@ jobs:
           
           TOOLCHAIN_FILE="/tmp/osxcross/target/toolchain.cmake"
           
-          if[ "${{ matrix.osx }}" == "10.13" ]; then
+          if [ "${{ matrix.osx }}" == "10.13" ]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
             export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
           else
