@@ -24,8 +24,10 @@ jobs:
           
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/osxcross/
           
+          # Установка глобальных переменных окружения тулчейна
           echo "PATH=/tmp/osxcross/target/bin:${PATH:-}" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/tmp/osxcross/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          echo "OSXCROSS_TARGET_DIR=/tmp/osxcross/target" >> $GITHUB_ENV
           
           curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
           mv poppler-* poppler_src
@@ -34,19 +36,15 @@ jobs:
         run: |
           set -euo pipefail
           
-          # 1. Динамическое определение целевой платформы (Triplet)
+          # Строго соблюденный синтаксис пробелов в Bash
           if [ "${{ matrix.osx }}" == "10.5" ]; then TARGET="x86_64-apple-darwin9"; fi
           if [ "${{ matrix.osx }}" == "10.6" ]; then TARGET="x86_64-apple-darwin10"; fi
           if [ "${{ matrix.osx }}" == "10.13" ]; then TARGET="x86_64-apple-darwin17"; fi
           
-          # Использование нативных врапперов (решает баг "cannot find libc++ headers")
-          export CC="${TARGET}-clang"
-          export CXX="${TARGET}-clang++"
-          export MACOSX_DEPLOYMENT_TARGET="${{ matrix.osx }}"
-          export CMAKE_OSX_SYSROOT="/tmp/osxcross/target/SDK/MacOSX${{ matrix.osx }}.sdk"
+          # Переход на официальный Toolchain-файл OSXCross (решает проблему с путями libc++)
+          TOOLCHAIN_FILE="/tmp/osxcross/target/toolchain.cmake"
           
-          # 2. Подготовка префиксов
-          if [[ "${{ matrix.osx }}" == "10.13" ]]; then
+          if [ "${{ matrix.osx }}" == "10.13" ]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
             export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
           else
@@ -55,26 +53,24 @@ jobs:
             cd freetype-2.13.2
             mkdir build_ft && cd build_ft
             
-            cmake .. -DCMAKE_SYSTEM_NAME=Darwin \
-              -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
-              -DCMAKE_OSX_SYSROOT="$CMAKE_OSX_SYSROOT" \
+            cmake .. -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
               -DCMAKE_INSTALL_PREFIX=/tmp/custom_deps \
               -DWITH_ZLIB=OFF -DWITH_BZip2=OFF -DWITH_PNG=OFF -DWITH_HarfBuzz=OFF -DWITH_Brotli=OFF
             make -j$(nproc) install
             cd ../..
             
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
+            
+            # Guard Clause: Физическое удаление флага REQUIRED для Fontconfig из кода Poppler
+            # Это позволяет CMake легально проигнорировать отсутствие библиотеки
+            sed -i 's/find_package(Fontconfig REQUIRED)/find_package(Fontconfig)/g' poppler_src/CMakeLists.txt
           fi
           
-          # 3. Сборка Poppler
           mkdir -p build && cd build
           
-          # Глубокое подавление отсутствующих зависимостей через CMAKE_DISABLE_FIND_PACKAGE
+          # Использование CMAKE_TOOLCHAIN_FILE вместо ручного указания CC/CXX
           cmake ../poppler_src \
-            -DCMAKE_SYSTEM_NAME=Darwin \
-            -DCMAKE_C_COMPILER="$CC" \
-            -DCMAKE_CXX_COMPILER="$CXX" \
-            -DCMAKE_OSX_SYSROOT="$CMAKE_OSX_SYSROOT" \
+            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
             -DCMAKE_DISABLE_FIND_PACKAGE_Fontconfig=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_Cairo=TRUE \
@@ -82,6 +78,7 @@ jobs:
             -DCMAKE_DISABLE_FIND_PACKAGE_PNG=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_TIFF=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_NSS3=TRUE \
+            -DENABLE_GPGME=OFF \
             -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_CMS=OFF \
             -DENABLE_LIBTIFF=OFF -DENABLE_PNG=OFF -DENABLE_GLIB=OFF \
             -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DBUILD_CPP_TESTS=OFF \
