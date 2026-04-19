@@ -1,40 +1,29 @@
 name: Build Poppler from Scratch
 
-on: [workflow_dispatch]
+on:[workflow_dispatch]
 
 jobs:
   build-poppler:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        osx: ["10.5", "10.6", "10.13"]
+        osx:["10.5", "10.6", "10.13"]
     
     steps:
       - name: Install Build Tools
-        run: |
-          sudo apt-get update
-          # Пытаемся установить libxar-dev, в котором обычно есть нужная библиотека
-          sudo apt-get install -y cmake ninja-build curl tar xz-utils libxar-dev
-          
-          # Если libxar1 все еще не виден, найдем где он лежит в системе и создадим симлинк
-          if [ ! -f /usr/lib/x86_64-linux-gnu/libxar.so.1 ]; then
-            echo "Searching for libxar..."
-            find /usr/lib -name "libxar.so*"
-            # Создаем симлинк на версию, которая есть в системе
-            sudo ln -s $(find /usr/lib -name "libxar.so.*" | head -n 1) /usr/lib/x86_64-linux-gnu/libxar.so.1 || true
-          fi
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build curl tar xz-utils
+
       - name: Download and Prepare
         run: |
           set -euo pipefail
-          # 1. Скачивание вашего конкретного артефакта из релиза
           RELEASE_URL="https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2"
           curl -LO "$RELEASE_URL"
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
           
-          # Установка пути к тулчейну
+          # Устанавливаем пути и для бинарников, и для библиотек OSXCross
           echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/tmp/target/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
           
-          # 2. Скачивание и распаковка исходников Poppler
           curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
           mv poppler-* poppler_src
 
@@ -47,7 +36,6 @@ jobs:
           
           mkdir build && cd build
           
-          # Использование флага для старых систем (определение архитектуры)
           ARCH_FLAG="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}"
           
           cmake ../poppler_src \
