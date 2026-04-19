@@ -12,7 +12,7 @@ jobs:
     
     steps:
       - name: Install Build Tools
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build curl tar xz-utils
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build curl tar xz-utils make
 
       - name: Download and Prepare
         run: |
@@ -26,7 +26,6 @@ jobs:
           
           echo "PATH=/tmp/osxcross/target/bin:${PATH:-}" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/tmp/osxcross/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
-          echo "OSXCROSS_TARGET_DIR=/tmp/osxcross/target" >> $GITHUB_ENV
           
           curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
           mv poppler-* poppler_src
@@ -35,15 +34,26 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Строго соблюденный синтаксис bash!
-          if [ "${{ matrix.osx }}" == "10.5" ]; then TARGET="x86_64-apple-darwin9"; fi
-          if [ "${{ matrix.osx }}" == "10.6" ]; then TARGET="x86_64-apple-darwin10"; fi
-          if [ "${{ matrix.osx }}" == "10.13" ]; then TARGET="x86_64-apple-darwin17"; fi
+          # Пуленепробиваемый POSIX-синтаксис выбора архитектуры
+          case "${{ matrix.osx }}" in
+            "10.5")
+              TARGET="x86_64-apple-darwin9"
+              ;;
+            "10.6")
+              TARGET="x86_64-apple-darwin10"
+              ;;
+            "10.13")
+              TARGET="x86_64-apple-darwin17"
+              ;;
+            *)
+              echo "::error::Unsupported macOS version"
+              exit 1
+              ;;
+          esac
           
-          # КРИТИЧЕСКИ ВАЖНО для toolchain.cmake: явное указание хоста
-          export OSXCROSS_HOST="$TARGET"
-          
-          TOOLCHAIN_FILE="/tmp/osxcross/target/toolchain.cmake"
+          # МАГИЯ OSXCross: Использование встроенного CMake-враппера
+          # Он автоматически инжектирует OSXCROSS_HOST, sysroot и пути к компиляторам
+          CMAKE_WRAPPER="${TARGET}-cmake"
           
           if [ "${{ matrix.osx }}" == "10.13" ]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
@@ -54,7 +64,8 @@ jobs:
             cd freetype-2.13.2
             mkdir build_ft && cd build_ft
             
-            cmake .. -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+            # Вызываем враппер OSXCross вместо системного cmake
+            $CMAKE_WRAPPER .. \
               -DCMAKE_INSTALL_PREFIX=/tmp/custom_deps \
               -DWITH_ZLIB=OFF -DWITH_BZip2=OFF -DWITH_PNG=OFF -DWITH_HarfBuzz=OFF -DWITH_Brotli=OFF
             make -j$(nproc) install
@@ -62,14 +73,13 @@ jobs:
             
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
             
-            # Удаляем флаг REQUIRED, чтобы отключение работало гладко
             sed -i 's/find_package(Fontconfig REQUIRED)/find_package(Fontconfig)/g' poppler_src/CMakeLists.txt
           fi
           
           mkdir -p build && cd build
           
-          cmake ../poppler_src \
-            -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+          # Конфигурация основного проекта через враппер
+          $CMAKE_WRAPPER ../poppler_src \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
             -DCMAKE_DISABLE_FIND_PACKAGE_Fontconfig=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_Cairo=TRUE \
