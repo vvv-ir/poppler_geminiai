@@ -1,11 +1,12 @@
 name: Build Poppler from Scratch
 
-    on: [workflow_dispatch]
+on: [workflow_dispatch]
 
 jobs:
   build-poppler:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         osx: ["10.5", "10.6", "10.13"]
     
