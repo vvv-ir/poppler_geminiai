@@ -18,13 +18,10 @@ jobs:
         run: |
           set -euo pipefail
           
-          # ВОССТАНОВЛЕНИЕ ПУТЕЙ: Создаем папку, в которой изначально собирался OSXCross
           mkdir -p /tmp/osxcross
-          
           RELEASE_URL="https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2"
           curl -LO "$RELEASE_URL"
           
-          # Распаковываем строго по оригинальному пути: /tmp/osxcross/target
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/osxcross/
           
           echo "PATH=/tmp/osxcross/target/bin:${PATH:-}" >> $GITHUB_ENV
@@ -36,12 +33,19 @@ jobs:
       - name: Build Dependencies and Poppler
         run: |
           set -euo pipefail
-          export CC=o64-clang
-          export CXX=o64-clang++
-          export MACOSX_DEPLOYMENT_TARGET=${{ matrix.osx }}
           
-          ARCH_FLAG="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}"
+          # 1. Динамическое определение целевой платформы (Triplet)
+          if [ "${{ matrix.osx }}" == "10.5" ]; then TARGET="x86_64-apple-darwin9"; fi
+          if [ "${{ matrix.osx }}" == "10.6" ]; then TARGET="x86_64-apple-darwin10"; fi
+          if [ "${{ matrix.osx }}" == "10.13" ]; then TARGET="x86_64-apple-darwin17"; fi
           
+          # Использование нативных врапперов (решает баг "cannot find libc++ headers")
+          export CC="${TARGET}-clang"
+          export CXX="${TARGET}-clang++"
+          export MACOSX_DEPLOYMENT_TARGET="${{ matrix.osx }}"
+          export CMAKE_OSX_SYSROOT="/tmp/osxcross/target/SDK/MacOSX${{ matrix.osx }}.sdk"
+          
+          # 2. Подготовка префиксов
           if [[ "${{ matrix.osx }}" == "10.13" ]]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
             export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
@@ -52,8 +56,8 @@ jobs:
             mkdir build_ft && cd build_ft
             
             cmake .. -DCMAKE_SYSTEM_NAME=Darwin \
-              -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX \
-              -DCMAKE_C_FLAGS="$ARCH_FLAG" -DCMAKE_CXX_FLAGS="$ARCH_FLAG" \
+              -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" \
+              -DCMAKE_OSX_SYSROOT="$CMAKE_OSX_SYSROOT" \
               -DCMAKE_INSTALL_PREFIX=/tmp/custom_deps \
               -DWITH_ZLIB=OFF -DWITH_BZip2=OFF -DWITH_PNG=OFF -DWITH_HarfBuzz=OFF -DWITH_Brotli=OFF
             make -j$(nproc) install
@@ -62,20 +66,25 @@ jobs:
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
           fi
           
+          # 3. Сборка Poppler
           mkdir -p build && cd build
           
-          # Отключаем Fontconfig и Cairo, чтобы избежать зависимостей на 10.5/10.6
+          # Глубокое подавление отсутствующих зависимостей через CMAKE_DISABLE_FIND_PACKAGE
           cmake ../poppler_src \
             -DCMAKE_SYSTEM_NAME=Darwin \
-            -DCMAKE_C_COMPILER=$CC \
-            -DCMAKE_CXX_COMPILER=$CXX \
-            -DCMAKE_CXX_FLAGS="$ARCH_FLAG" \
-            -DCMAKE_C_FLAGS="$ARCH_FLAG" \
+            -DCMAKE_C_COMPILER="$CC" \
+            -DCMAKE_CXX_COMPILER="$CXX" \
+            -DCMAKE_OSX_SYSROOT="$CMAKE_OSX_SYSROOT" \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Fontconfig=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_Cairo=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_PNG=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_TIFF=TRUE \
+            -DCMAKE_DISABLE_FIND_PACKAGE_NSS3=TRUE \
             -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_CMS=OFF \
             -DENABLE_LIBTIFF=OFF -DENABLE_PNG=OFF -DENABLE_GLIB=OFF \
             -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DBUILD_CPP_TESTS=OFF \
-            -DWITH_Fontconfig=OFF -DWITH_Cairo=OFF -DWITH_JPEG=OFF \
             -DCMAKE_INSTALL_PREFIX=./install
           
           make -j$(nproc) install
