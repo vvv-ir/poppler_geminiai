@@ -1,13 +1,13 @@
 name: Build Poppler from Scratch
 
-on:[workflow_dispatch]
+    on: [workflow_dispatch]
 
 jobs:
   build-poppler:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        osx:["10.5", "10.6", "10.13"]
+        osx: ["10.5", "10.6", "10.13"]
     
     steps:
       - name: Install Build Tools
