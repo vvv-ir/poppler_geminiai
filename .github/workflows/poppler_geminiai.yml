@@ -8,7 +8,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        osx: ["10.5", "10.6", "10.13"]
+        osx:["10.5", "10.6", "10.13"]
     
     steps:
       - name: Install Build Tools
@@ -21,9 +21,9 @@ jobs:
           curl -LO "$RELEASE_URL"
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
           
-          # Устанавливаем пути и для бинарников, и для библиотек OSXCross
-          echo "PATH=/tmp/target/bin:$PATH" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/tmp/target/lib:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          # Guard: Безопасное добавление путей. Конструкция ${VAR:-} вернет пустоту, если переменная не задана.
+          echo "PATH=/tmp/target/bin:${PATH:-}" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/tmp/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
           
           curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
           mv poppler-* poppler_src
