@@ -34,37 +34,32 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Пуленепробиваемый POSIX-синтаксис выбора архитектуры
+          # Определяем Target
           case "${{ matrix.osx }}" in
-            "10.5")
-              TARGET="x86_64-apple-darwin9"
-              ;;
-            "10.6")
-              TARGET="x86_64-apple-darwin10"
-              ;;
-            "10.13")
-              TARGET="x86_64-apple-darwin17"
-              ;;
-            *)
-              echo "::error::Unsupported macOS version"
-              exit 1
-              ;;
+            "10.5") TARGET="x86_64-apple-darwin9" ;;
+            "10.6") TARGET="x86_64-apple-darwin10" ;;
+            "10.13") TARGET="x86_64-apple-darwin17" ;;
+            *) echo "::error::Unsupported macOS version" && exit 1 ;;
           esac
           
-          # МАГИЯ OSXCross: Использование встроенного CMake-враппера
-          # Он автоматически инжектирует OSXCROSS_HOST, sysroot и пути к компиляторам
           CMAKE_WRAPPER="${TARGET}-cmake"
+          
+          # Глобальный патч: удаляем REQUIRED для Fontconfig для ВСЕХ версий
+          sed -i 's/find_package(Fontconfig REQUIRED)/find_package(Fontconfig)/g' poppler_src/CMakeLists.txt
           
           if [ "${{ matrix.osx }}" == "10.13" ]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
             export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
+            
+            # Явные пути для переопределения системных библиотек OSX
+            FT_LIB="$CMAKE_PREFIX_PATH/lib/libfreetype.dylib"
+            FT_INC="$CMAKE_PREFIX_PATH/include/freetype2"
           else
             echo "Cross-compiling minimal FreeType for legacy macOS..."
             curl -L https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.xz | tar -xJ
             cd freetype-2.13.2
             mkdir build_ft && cd build_ft
             
-            # Вызываем враппер OSXCross вместо системного cmake
             $CMAKE_WRAPPER .. \
               -DCMAKE_INSTALL_PREFIX=/tmp/custom_deps \
               -DWITH_ZLIB=OFF -DWITH_BZip2=OFF -DWITH_PNG=OFF -DWITH_HarfBuzz=OFF -DWITH_Brotli=OFF
@@ -72,15 +67,18 @@ jobs:
             cd ../..
             
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
-            
-            sed -i 's/find_package(Fontconfig REQUIRED)/find_package(Fontconfig)/g' poppler_src/CMakeLists.txt
+            FT_LIB="$CMAKE_PREFIX_PATH/lib/libfreetype.a"
+            FT_INC="$CMAKE_PREFIX_PATH/include/freetype2"
           fi
           
           mkdir -p build && cd build
           
-          # Конфигурация основного проекта через враппер
+          # Конфигурация Poppler с жестким внедрением путей к правильному FreeType
           $CMAKE_WRAPPER ../poppler_src \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DFREETYPE_LIBRARY="$FT_LIB" \
+            -DFREETYPE_INCLUDE_DIRS="$FT_INC" \
+            -DENABLE_DCTDECODER=none \
             -DCMAKE_DISABLE_FIND_PACKAGE_Fontconfig=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_Cairo=TRUE \
             -DCMAKE_DISABLE_FIND_PACKAGE_JPEG=TRUE \
