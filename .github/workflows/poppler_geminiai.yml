@@ -24,7 +24,6 @@ jobs:
           
           tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/osxcross/
           
-          # Установка глобальных переменных окружения тулчейна
           echo "PATH=/tmp/osxcross/target/bin:${PATH:-}" >> $GITHUB_ENV
           echo "LD_LIBRARY_PATH=/tmp/osxcross/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
           echo "OSXCROSS_TARGET_DIR=/tmp/osxcross/target" >> $GITHUB_ENV
@@ -36,15 +35,17 @@ jobs:
         run: |
           set -euo pipefail
           
-          # Строго соблюденный синтаксис пробелов в Bash
+          # Строго соблюденный синтаксис bash!
           if [ "${{ matrix.osx }}" == "10.5" ]; then TARGET="x86_64-apple-darwin9"; fi
           if [ "${{ matrix.osx }}" == "10.6" ]; then TARGET="x86_64-apple-darwin10"; fi
           if [ "${{ matrix.osx }}" == "10.13" ]; then TARGET="x86_64-apple-darwin17"; fi
           
-          # Переход на официальный Toolchain-файл OSXCross (решает проблему с путями libc++)
+          # КРИТИЧЕСКИ ВАЖНО для toolchain.cmake: явное указание хоста
+          export OSXCROSS_HOST="$TARGET"
+          
           TOOLCHAIN_FILE="/tmp/osxcross/target/toolchain.cmake"
           
-          if [ "${{ matrix.osx }}" == "10.13" ]; then
+          if[ "${{ matrix.osx }}" == "10.13" ]; then
             export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
             export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
           else
@@ -61,14 +62,12 @@ jobs:
             
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
             
-            # Guard Clause: Физическое удаление флага REQUIRED для Fontconfig из кода Poppler
-            # Это позволяет CMake легально проигнорировать отсутствие библиотеки
+            # Удаляем флаг REQUIRED, чтобы отключение работало гладко
             sed -i 's/find_package(Fontconfig REQUIRED)/find_package(Fontconfig)/g' poppler_src/CMakeLists.txt
           fi
           
           mkdir -p build && cd build
           
-          # Использование CMAKE_TOOLCHAIN_FILE вместо ручного указания CC/CXX
           cmake ../poppler_src \
             -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
