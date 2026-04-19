@@ -17,12 +17,18 @@ jobs:
       - name: Download and Prepare
         run: |
           set -euo pipefail
+          
+          # ВОССТАНОВЛЕНИЕ ПУТЕЙ: Создаем папку, в которой изначально собирался OSXCross
+          mkdir -p /tmp/osxcross
+          
           RELEASE_URL="https://github.com/vvv-ir/osxcross_gemini_aistudio_way/releases/download/multi-build-23/osxcross-${{ matrix.osx }}-toolchain.tar.bz2"
           curl -LO "$RELEASE_URL"
-          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/
           
-          echo "PATH=/tmp/target/bin:${PATH:-}" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=/tmp/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
+          # Распаковываем строго по оригинальному пути: /tmp/osxcross/target
+          tar -xjf osxcross-${{ matrix.osx }}-toolchain.tar.bz2 -C /tmp/osxcross/
+          
+          echo "PATH=/tmp/osxcross/target/bin:${PATH:-}" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/tmp/osxcross/target/lib:${LD_LIBRARY_PATH:-}" >> $GITHUB_ENV
           
           curl -L https://poppler.freedesktop.org/poppler-24.02.0.tar.xz | tar -xJ
           mv poppler-* poppler_src
@@ -36,19 +42,15 @@ jobs:
           
           ARCH_FLAG="-target x86_64-apple-darwin${{ matrix.osx == '10.5' && '9' || (matrix.osx == '10.6' && '10' || '17') }}"
           
-          # Guard Clause: Обеспечение наличия FreeType перед сборкой Poppler
           if [[ "${{ matrix.osx }}" == "10.13" ]]; then
-            # Для 10.13 просто указываем путь к MacPorts
-            export CMAKE_PREFIX_PATH="/tmp/target/macports/pkgs/opt/local"
-            export PKG_CONFIG_PATH="/tmp/target/macports/pkgs/opt/local/lib/pkgconfig"
+            export CMAKE_PREFIX_PATH="/tmp/osxcross/target/macports/pkgs/opt/local"
+            export PKG_CONFIG_PATH="/tmp/osxcross/target/macports/pkgs/opt/local/lib/pkgconfig"
           else
-            # Для 10.5 и 10.6 компилируем FreeType из исходников "на лету"
             echo "Cross-compiling minimal FreeType for legacy macOS..."
             curl -L https://download.savannah.gnu.org/releases/freetype/freetype-2.13.2.tar.xz | tar -xJ
             cd freetype-2.13.2
             mkdir build_ft && cd build_ft
             
-            # Отключаем вложенные зависимости (ZLIB, PNG, HarfBuzz), чтобы не сломать компиляцию
             cmake .. -DCMAKE_SYSTEM_NAME=Darwin \
               -DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX \
               -DCMAKE_C_FLAGS="$ARCH_FLAG" -DCMAKE_CXX_FLAGS="$ARCH_FLAG" \
@@ -57,12 +59,12 @@ jobs:
             make -j$(nproc) install
             cd ../..
             
-            # Указываем Poppler'у путь к свежесобранному FreeType
             export CMAKE_PREFIX_PATH="/tmp/custom_deps"
           fi
           
-          # Сборка Poppler
           mkdir -p build && cd build
+          
+          # Отключаем Fontconfig и Cairo, чтобы избежать зависимостей на 10.5/10.6
           cmake ../poppler_src \
             -DCMAKE_SYSTEM_NAME=Darwin \
             -DCMAKE_C_COMPILER=$CC \
@@ -73,6 +75,7 @@ jobs:
             -DENABLE_QT5=OFF -DENABLE_QT6=OFF -DENABLE_CMS=OFF \
             -DENABLE_LIBTIFF=OFF -DENABLE_PNG=OFF -DENABLE_GLIB=OFF \
             -DENABLE_BOOST=OFF -DENABLE_NSS3=OFF -DBUILD_CPP_TESTS=OFF \
+            -DWITH_Fontconfig=OFF -DWITH_Cairo=OFF -DWITH_JPEG=OFF \
             -DCMAKE_INSTALL_PREFIX=./install
           
           make -j$(nproc) install
